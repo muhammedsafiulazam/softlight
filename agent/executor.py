@@ -80,36 +80,65 @@ class Executor:
         """
         Handle click action - clicks an element on the page.
         
-        Supports both text-based and CSS selector-based clicking.
-        Text-based is preferred as it's more reliable.
+        Supports multiple selection methods:
+        - CSS selector: {"selector": "button.contact"}
+        - XPath: {"xpath": "//button[contains(text(), 'Contact')]"}
+        - Coordinates: {"coordinates": {"x": 100, "y": 200}}
+        - Text (legacy): {"text": "Contact"} - kept for backward compatibility
         
         Args:
             page: Playwright page object
-            params: Dict containing either "text" or "selector" key
+            params: Dict containing selector, xpath, coordinates, or text
         """
-        if "text" in params:
-            # Text-based selection (preferred)
+        if "coordinates" in params:
+            # Click at exact coordinates (last resort)
+            coords = params["coordinates"]
+            x = coords.get("x")
+            y = coords.get("y")
+            if x is None or y is None:
+                raise ValueError("coordinates must have 'x' and 'y' keys")
+            page.mouse.click(x, y)
+        elif "xpath" in params:
+            # XPath-based selection
+            xpath = params["xpath"]
+            try:
+                element = page.locator(f"xpath={xpath}").first
+                element.wait_for(timeout=3000)
+                if not element.is_visible():
+                    raise ValueError(f"XPath '{xpath}' found but element is not visible")
+                element.click()
+            except Exception as e:
+                raise ValueError(
+                    f"XPath '{xpath}' not found or not clickable. Error: {e}"
+                )
+        elif "selector" in params:
+            # CSS selector-based selection (preferred)
+            selector = params["selector"]
+            try:
+                page.wait_for_selector(selector, timeout=3000)
+                element = page.locator(selector).first
+                if not element.is_visible():
+                    raise ValueError(f"Selector '{selector}' found but element is not visible")
+                element.click()
+            except Exception as e:
+                raise ValueError(
+                    f"Selector '{selector}' not found or not clickable. Error: {e}"
+                )
+        elif "text" in params:
+            # Text-based selection (legacy, kept for backward compatibility)
             text = params["text"]
-            # Check if the text actually exists on the page
             try:
                 element = page.get_by_text(text, exact=False).first
                 element.wait_for(timeout=3000)
-                # Verify element is actually visible and clickable
                 if not element.is_visible():
                     raise ValueError(f"Text '{text}' found but element is not visible")
                 element.click()
             except Exception as e:
-                # Text doesn't exist - this means LLM hallucinated the text
                 raise ValueError(
-                    f"Text '{text}' not found on page. The LLM may have suggested text that doesn't exist. "
-                    f"Please check the actual DOM content. Error: {e}"
+                    f"Text '{text}' not found on page. Error: {e}"
                 )
-        elif "selector" in params:
-            # CSS selector-based selection (fallback)
-            page.wait_for_selector(params["selector"])
-            page.click(params["selector"])
         else:
-            raise ValueError("click action missing 'text' or 'selector' parameter")
+            raise ValueError("click action missing 'selector', 'xpath', 'coordinates', or 'text' parameter")
         
         # Wait for UI to update after click (modals, dropdowns, etc.)
         page.wait_for_timeout(500)
@@ -118,49 +147,68 @@ class Executor:
         """
         Handle type action - fills an input field with text.
         
-        Supports both text-based (by label) and CSS selector-based input.
-        Text-based is preferred as it's more reliable.
+        Supports multiple selection methods:
+        - CSS selector: {"selector": "input.email", "value": "test@example.com"}
+        - XPath: {"xpath": "//input[@type='email']", "value": "test@example.com"}
+        - Text (legacy): {"text": "Email", "value": "test@example.com"}
         
         Args:
             page: Playwright page object
-            params: Dict containing "value" and either "text" (label) or "selector" key
+            params: Dict containing "value" and selector/xpath/text
         """
         if "value" not in params:
             raise ValueError("type action missing 'value' parameter")
         
         value = params["value"]
         
-        if "text" in params:
-            # Text-based selection - find input by its label text
+        if "xpath" in params:
+            # XPath-based selection
+            xpath = params["xpath"]
+            try:
+                element = page.locator(f"xpath={xpath}").first
+                element.wait_for(timeout=3000)
+                if not element.is_visible():
+                    raise ValueError(f"XPath '{xpath}' found but element is not visible")
+                element.fill(value)
+            except Exception as e:
+                raise ValueError(
+                    f"XPath '{xpath}' not found or not fillable. Error: {e}"
+                )
+        elif "selector" in params:
+            # CSS selector-based selection (preferred)
+            selector = params["selector"]
+            try:
+                page.wait_for_selector(selector, timeout=3000)
+                element = page.locator(selector).first
+                if not element.is_visible():
+                    raise ValueError(f"Selector '{selector}' found but element is not visible")
+                element.fill(value)
+            except Exception as e:
+                raise ValueError(
+                    f"Selector '{selector}' not found or not fillable. Error: {e}"
+                )
+        elif "text" in params:
+            # Text-based selection (legacy, kept for backward compatibility)
             label_text = params["text"]
             # Try multiple strategies to find the input field
             try:
-                # Strategy 1: get_by_label (for proper label associations)
                 page.get_by_label(label_text, exact=False).first.wait_for(timeout=2000)
                 page.get_by_label(label_text, exact=False).first.fill(value)
             except:
                 try:
-                    # Strategy 2: Find input by aria-label or placeholder
                     input_elem = page.locator(f'input[aria-label*="{label_text}"], input[placeholder*="{label_text}"]').first
                     input_elem.wait_for(timeout=2000)
                     input_elem.fill(value)
                 except:
                     try:
-                        # Strategy 3: Find input near label text element
                         page.get_by_text(label_text, exact=False).first.locator('..').locator('input').fill(value)
                     except:
                         try:
-                            # Strategy 4: Role-based search
                             page.get_by_role("textbox", name=label_text, exact=False).first.fill(value)
                         except:
-                            # Strategy 5: Last resort - find by placeholder containing text
                             page.locator(f'input[placeholder*="{label_text}"]').first.fill(value)
-        elif "selector" in params:
-            # CSS selector-based selection (fallback)
-            page.wait_for_selector(params["selector"])
-            page.fill(params["selector"], value)
         else:
-            raise ValueError("type action missing 'text' (label) or 'selector' parameter")
+            raise ValueError("type action missing 'selector', 'xpath', or 'text' parameter")
         
         # Wait for UI to update after typing (autocomplete, validation, etc.)
         page.wait_for_timeout(300)
@@ -169,20 +217,23 @@ class Executor:
         """
         Handle wait_for action - waits for an element to appear.
         
-        Supports both text-based and CSS selector-based waiting.
+        Supports multiple selection methods:
+        - CSS selector: {"selector": "button.submit"}
+        - XPath: {"xpath": "//button[contains(text(), 'Submit')]"}
+        - Text (legacy): {"text": "Submit"}
         
         Args:
             page: Playwright page object
-            params: Dict containing either "text" or "selector" key
+            params: Dict containing selector, xpath, or text
         """
-        if "text" in params:
-            # Text-based waiting (preferred)
-            page.get_by_text(params["text"], exact=False).first.wait_for()
+        if "xpath" in params:
+            page.locator(f"xpath={params['xpath']}").first.wait_for()
         elif "selector" in params:
-            # CSS selector-based waiting (fallback)
             page.wait_for_selector(params["selector"])
+        elif "text" in params:
+            page.get_by_text(params["text"], exact=False).first.wait_for()
         else:
-            raise ValueError("wait_for action missing 'text' or 'selector' parameter")
+            raise ValueError("wait_for action missing 'selector', 'xpath', or 'text' parameter")
 
     def run(self, steps):
         """
@@ -319,9 +370,9 @@ class Executor:
                     # Use first 2000 chars of cleaned DOM
                     state_summary = current_state[:2000]
                     
-                    print(f"[PLANNER] Planning step {step_index} based on current UI state...")
+                    print(f"[PLANNER] Planning step {step_index} based on current DOM state...")
                     
-                    # Plan next step based on current state
+                    # Plan next step based on current DOM state
                     next_step = plan_next_step(
                         task=task,
                         current_state=state_summary,

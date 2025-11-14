@@ -7,6 +7,7 @@ to convert natural language task descriptions into structured browser automation
 Key features:
 - Generalizable: Can handle any task, any web app
 - Runtime planning: Tasks are unknown ahead of time
+- DOM-based: Analyzes DOM structure to provide precise selectors
 - Structured output: Returns JSON array of executable steps
 """
 
@@ -26,39 +27,51 @@ You work step-by-step: you see the current UI state and plan the NEXT single act
 
 You receive:
 1. The overall task goal (e.g., "contact sales", "request a demo")
-2. The current page state (DOM content or description)
+2. The current page state (DOM content)
 
 CRITICAL: Always match your actions to the task goal!
 - If the task is to "contact sales", look for buttons/links with text like "Contact", "Sales", "Contact Sales", "Get in Touch", "Request Demo"
 - Do NOT click on unrelated navigation items like "Product", "Features", "Pricing" unless they lead to the contact/sales page
 - Read the task goal carefully and only click elements that help achieve that goal
+- When you see forms, use the "type" action to fill input fields with appropriate values
+- For contact forms, fill fields like: name, email, message, company, etc. with reasonable test values
 
 Output a JSON object with a single "step" key containing ONE action to take next.
 
 Actions must be one of these types:
 - navigate: {"url": "..."} - Navigate to a URL
-- click: {"text": "..."} or {"selector": "..."} - Click an element by visible text (PREFERRED) or CSS selector
-- type: {"text": "...", "value": "..."} or {"selector": "...", "value": "..."} - Type text into an input by label text (PREFERRED) or CSS selector
-- wait_for: {"text": "..."} or {"selector": "..."} - Wait for an element to appear by text or selector
+- click: {"selector": "..."} or {"xpath": "..."} or {"coordinates": {"x": 100, "y": 200}} - Click an element using precise selector
+- type: {"selector": "...", "value": "..."} or {"xpath": "...", "value": "..."} - Type text into an input using precise selector
+- wait_for: {"selector": "..."} or {"xpath": "..."} - Wait for an element to appear
 - done: {} - Task is complete, no more steps needed
 
+IMPORTANT: Provide PRECISE selectors based on DOM analysis!
+- Analyze the DOM structure carefully to identify the exact element
+- Use CSS selectors that uniquely identify the element (e.g., "button.contact-sales", "a[href='/contact']")
+- Use XPath for complex selections (e.g., "//button[contains(text(), 'Contact')]")
+- Use coordinates only as last resort if selector is not possible: {"coordinates": {"x": 100, "y": 200}}
+- Create the most specific selector possible by analyzing element attributes, classes, text content, and DOM hierarchy
+
 IMPORTANT SELECTOR GUIDELINES:
-- ALWAYS use visible text from buttons/links you see in the DOM, NOT CSS selectors
-- When you see a button with text "Contact", click it using: {"click": {"text": "Contact"}}
-- When you see a link with text "Sales", click it using: {"click": {"text": "Sales"}}
-- Look for the actual visible text content in the DOM (the text between tags like <button>Contact</button>)
-- Only use "selector" if the element has no visible text at all
-- Text-based selection is more reliable because CSS classes change, but button text usually stays the same
+- Provide PRECISE selectors that uniquely identify the target element
+- Analyze the DOM structure to create the most specific selector possible
+- Use CSS selectors: "button.contact-btn", "a[href='/contact']", "nav > button:first-child"
+- Use XPath for complex cases: "//button[contains(@class, 'contact')]", "//a[text()='Contact Sales']"
+- Use coordinates as last resort: {"coordinates": {"x": 100, "y": 200}}
+- Make selectors specific enough to avoid ambiguity (multiple matches)
 
 Examples:
-- You see: <button>Contact</button> → Use: {"step": {"click": {"text": "Contact"}}}  ✓
-- You see: <a href="/sales">Request Demo</a> → Use: {"step": {"click": {"text": "Request Demo"}}}  ✓
-- You see: <button class="complex-css">Submit</button> → Use: {"step": {"click": {"text": "Submit"}}}  ✓ (ignore the CSS class!)
-- You see: <input type="text" placeholder="Email"> → Use: {"step": {"type": {"text": "Email", "value": "test@example.com"}}}  ✓
-- You see: <button class="xyz"></button> (no text) → Use: {"step": {"click": {"selector": "button.xyz"}}}  ✗ Only as last resort
+- You see: <button class="contact-btn">Contact</button> → Use: {"step": {"click": {"selector": "button.contact-btn"}}}  ✓
+- You see: <a href="/sales">Request Demo</a> → Use: {"step": {"click": {"selector": "a[href='/sales']"}}}  ✓
+- You see: <button class="btn primary">Submit</button> → Use: {"step": {"click": {"selector": "button.btn.primary"}}}  ✓
+- You see: <input type="text" placeholder="Email"> → Use: {"step": {"type": {"selector": "input[placeholder='Email']", "value": "test@example.com"}}}  ✓
+- You see: <input name="name" type="text"> → Use: {"step": {"type": {"selector": "input[name='name']", "value": "John Doe"}}}  ✓
+- You see: <textarea id="message"></textarea> → Use: {"step": {"type": {"selector": "textarea#message", "value": "I'm interested in learning more"}}}  ✓
+- Complex case: Use XPath → {"step": {"click": {"xpath": "//button[contains(text(), 'Contact') and @class='primary']"}}}  ✓
+- Form filling: {"step": {"type": {"xpath": "//input[@type='email']", "value": "demo@example.com"}}}  ✓
 
 You must ONLY output valid JSON in this format:
-{"step": {"click": {"text": "Contact Sales"}}}
+{"step": {"click": {"selector": "button.contact-sales"}}}
 
 IMPORTANT: Only output ONE step at a time. After this step executes, you'll see the new state and plan the next step.
 """
@@ -73,7 +86,7 @@ def plan_next_step(task: str, current_state: str, step_history: list = None, max
     Args:
         task: Natural language description of the overall goal
               Example: "Create a project in Linear" or "Contact sales for a demo"
-        current_state: Description of current UI state (DOM content or page description)
+        current_state: Description of current UI state (DOM content)
         step_history: List of steps already taken (for context)
         max_retries: Maximum number of retry attempts for rate limit errors
     
@@ -102,31 +115,35 @@ def plan_next_step(task: str, current_state: str, step_history: list = None, max
     prompt = f"""Task goal: {task}
 
 REMEMBER: Your task is to "{task}". Only click on elements that help achieve this goal.
-- Look in the DOM above for actual text that relates to your task
-- Do NOT make up text - only use text that you can see in the "Current page state" section
+- Analyze the DOM structure carefully to identify the exact element to interact with
+- Create PRECISE selectors (CSS or XPath) that uniquely identify the target element
 - Do NOT click on: Product, Features, Pricing, Blog, About (unless they lead to contact/sales)
 - Think: "Does clicking this help me contact sales?" If no, don't click it.
+- When you encounter forms, fill them out using the "type" action:
+  * Identify input fields (input, textarea) using their attributes (name, id, placeholder, type)
+  * Fill with appropriate test values (e.g., email: "test@example.com", name: "John Doe", message: "I'm interested")
+  * After filling all fields, click the submit button
 
 CRITICAL: Avoid repeating steps!
 - Check the step history above - do NOT repeat any action you've already tried
 - If a previous step didn't work, try a different approach or element
 - If you're stuck, try navigating to a different page or looking for alternative paths
 
-CRITICAL: Only use text that ACTUALLY EXISTS in the DOM above!
-- Look at the "Current page state" section - find the EXACT text that appears there
-- Do NOT make up or infer text like "Get in Touch" if you don't see it in the DOM
-- Do NOT use common phrases - only use text that is actually present in the HTML
-- Copy the exact text from the DOM (e.g., if you see <button>Contact Sales</button>, use "Contact Sales" exactly)
-- If you don't see relevant text in the DOM, try a different approach (navigate, wait, or use selector)
+CRITICAL: Provide PRECISE selectors based on DOM analysis!
+- Analyze the DOM structure carefully - look at element attributes, classes, IDs, text content, and hierarchy
+- Create specific CSS selectors or XPath that uniquely identify the element
+- Use element attributes (id, class, data-*, aria-*), text content, and parent/child relationships
+- Make selectors specific enough to avoid ambiguity (multiple matches)
+- Example: Instead of "button", use "button.contact-btn" or "nav > button:first-child"
 
-Current page state:
+Current page state (DOM):
 {state_preview}
 {history_context}
 
-What is the NEXT single action to take? Make sure it:
+What is the NEXT single action to take? Provide a PRECISE selector (CSS or XPath) that uniquely identifies the target element. Make sure it:
 1. Moves you closer to the task goal
 2. Is DIFFERENT from previous steps (don't repeat!)
-3. Uses ONLY text that appears in the DOM above (don't make up text!)
+3. Uses a PRECISE selector that uniquely identifies the element based on DOM structure
 4. Output only ONE step."""
     
     # Retry logic for rate limit errors

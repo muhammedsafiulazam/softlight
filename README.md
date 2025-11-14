@@ -13,10 +13,10 @@ Agent B receives natural language tasks from Agent A at runtime (e.g., "Open lin
 ## ✨ Key Features
 
 - **Step-by-Step Reactive Planning**: Plans one action at a time based on current UI state (not all steps upfront)
-- **Text-Based Element Selection**: Uses visible button/link text instead of brittle CSS selectors
+- **Precise DOM-Based Selectors**: OpenAI analyzes DOM structure to generate precise CSS selectors, XPath, or coordinates
 - **UI State Detection**: Captures screenshots even for modals/overlays without URL changes
 - **Generalizable**: Handles any task, any web app - no hardcoding required
-- **Error Handling**: Detects repeated steps, validates text existence, handles failures gracefully
+- **Error Handling**: Detects repeated steps, validates selectors, handles failures gracefully
 
 ## 🏗️ Architecture
 
@@ -106,8 +106,8 @@ executor.run_reactive(
 Unlike traditional automation that plans all steps upfront, this system:
 
 1. **Observes** current UI state (DOM content)
-2. **Plans** next single action using LLM
-3. **Executes** the action
+2. **Plans** next single action using LLM based on DOM analysis
+3. **Executes** the action using precise selectors
 4. **Captures** screenshot of new state
 5. **Repeats** until task complete
 
@@ -116,13 +116,32 @@ This reactive approach:
 - Handles unexpected page structures
 - Works without knowing the workflow ahead of time
 
-### Text-Based Selection
+### Precise DOM-Based Selectors
 
-The system prefers clicking elements by their visible text:
-- ✅ `{"click": {"text": "Contact Sales"}}` - Uses actual button text
-- ❌ `{"click": {"selector": "button.complex-css"}}` - Avoids brittle CSS
+The system uses OpenAI to analyze the DOM structure and generate precise selectors:
 
-This makes it more reliable across different web apps.
+- ✅ **CSS Selectors**: `{"click": {"selector": "button.contact-sales"}}` - Specific, reliable
+- ✅ **XPath**: `{"click": {"xpath": "//button[contains(text(), 'Contact')]"}}` - Complex queries
+- ✅ **Coordinates**: `{"click": {"coordinates": {"x": 100, "y": 200}}}` - Last resort
+
+OpenAI analyzes element attributes, classes, IDs, text content, and DOM hierarchy to create the most specific selector possible. This approach:
+- Works across different web apps without hardcoding
+- Handles dynamic class names and complex DOM structures
+- Provides exact click instructions based on DOM analysis
+
+### Form Filling (Typing)
+
+The system can fill out forms by typing text into input fields:
+
+- ✅ **CSS Selectors**: `{"type": {"selector": "input[name='email']", "value": "test@example.com"}}`
+- ✅ **XPath**: `{"type": {"xpath": "//input[@type='email']", "value": "test@example.com"}}`
+- ✅ **Textarea Support**: `{"type": {"selector": "textarea#message", "value": "Hello world"}}`
+
+OpenAI automatically:
+- Identifies input fields (input, textarea) in forms
+- Generates precise selectors using attributes (name, id, placeholder, type)
+- Fills fields with appropriate test values (emails, names, messages, etc.)
+- Handles multi-field forms by filling each field sequentially
 
 ## 📁 Project Structure
 
@@ -147,12 +166,16 @@ PythonSoftlight/
 **Task**: "Open linear.app and contact their sales team"
 
 1. **Step 1**: Navigate to `https://linear.app`
-2. **Step 2**: LLM sees page, finds "Contact" button → clicks it
-3. **Step 3**: LLM sees contact page, finds form → fills it out
-4. **Step 4**: LLM sees submit button → clicks it
+2. **Step 2**: LLM analyzes DOM, finds contact button → generates precise selector → clicks it
+   - Example: `{"click": {"selector": "a[href='/contact']"}}` or `{"click": {"xpath": "//button[contains(@class, 'contact')]"}}`
+3. **Step 3**: LLM analyzes contact form DOM → identifies input fields → fills each field
+   - Example: `{"type": {"selector": "input[name='email']", "value": "test@example.com"}}`
+   - Example: `{"type": {"selector": "input[name='name']", "value": "John Doe"}}`
+   - Example: `{"type": {"selector": "textarea[name='message']", "value": "I'm interested in a demo"}}`
+4. **Step 4**: LLM finds submit button in DOM → generates selector → clicks it
 5. **Done**: Task complete, screenshots saved
 
-Each step is planned reactively based on what the LLM sees in the current UI state.
+Each step is planned reactively based on DOM analysis. OpenAI generates precise selectors that uniquely identify target elements.
 
 ## 🛠️ Troubleshooting
 
@@ -163,12 +186,13 @@ If you see `insufficient_quota` errors:
 2. Add payment method or credits
 3. System uses `gpt-4o-mini` by default (cheapest option)
 
-### Text Not Found Errors
+### Selector Not Found Errors
 
-If you see "Text 'X' not found on page":
-- The LLM suggested text that doesn't exist
-- System will automatically try alternative approaches
+If you see "Selector 'X' not found or not clickable":
+- The LLM generated a selector that doesn't match any element
+- System will stop execution to prevent errors
 - Check screenshots in `dataset/` to see what's actually on the page
+- The DOM structure may have changed or the selector needs refinement
 
 ### Repeated Steps
 
@@ -182,7 +206,9 @@ The system automatically detects and prevents repeating the same step:
 - Screenshots are saved to `dataset/{task_name}/` (gitignored)
 - Browser runs in visible mode by default (`headless=False`)
 - Maximum steps default: 20 (configurable in `run_reactive()`)
-- System validates text exists before clicking (prevents hallucinated text)
+- System validates selectors exist and are visible before clicking
+- OpenAI analyzes DOM structure (first 2000 chars) to generate precise selectors
+- Supports CSS selectors, XPath, and coordinates for maximum flexibility
 
 ## 🔧 Development
 
@@ -204,7 +230,8 @@ executor.register_action("scroll", handle_scroll)
 
 - **New action types**: Register handlers via `register_action()`
 - **Better DOM analysis**: Enhance `browser.py` for smarter state detection
-- **Improved prompts**: Update `SYSTEM_PROMPT` in `planner.py` for better LLM guidance
+- **Improved prompts**: Update `SYSTEM_PROMPT` in `planner.py` for better LLM guidance on selector generation
+- **Selector strategies**: Customize how OpenAI generates selectors by modifying the prompt in `planner.py`
 
 ## 📄 License
 
