@@ -14,6 +14,7 @@ Agent B receives natural language tasks from Agent A at runtime (e.g., "Open lin
 
 - **Step-by-Step Reactive Planning**: Plans one action at a time based on current UI state (not all steps upfront)
 - **Precise DOM-Based Selectors**: OpenAI analyzes DOM structure to generate precise CSS selectors, XPath, or coordinates
+- **Form Filling**: Automatically identifies and fills form fields (input, textarea) with appropriate values
 - **UI State Detection**: Captures screenshots even for modals/overlays without URL changes
 - **Generalizable**: Handles any task, any web app - no hardcoding required
 - **Error Handling**: Detects repeated steps, validates selectors, handles failures gracefully
@@ -33,9 +34,17 @@ Agent B (this system)
 ### Components
 
 - **`agent/planner.py`**: LLM-based step planner (reactive, step-by-step)
+  - Analyzes DOM structure to generate precise selectors
+  - Plans next action based on current UI state and task goal
 - **`agent/executor.py`**: Browser automation executor with dynamic action registry
+  - Executes actions: navigate, click, type, wait_for
+  - Supports CSS selectors, XPath, and coordinates
 - **`agent/capture.py`**: UI state detection and screenshot capture
+  - Captures screenshots after each action
+  - Detects UI state changes via DOM diffing
 - **`agent/browser.py`**: DOM diffing utilities for detecting UI changes
+  - Cleans DOM for comparison
+  - Detects significant UI state changes
 
 ## 🚀 Setup
 
@@ -98,6 +107,39 @@ executor.run_reactive(
 
 # Screenshots saved to: dataset/my_task/
 ```
+
+### Supported Actions
+
+The system supports the following action types:
+
+- **`navigate`**: Navigate to a URL
+  ```json
+  {"navigate": {"url": "https://example.com"}}
+  ```
+
+- **`click`**: Click an element (supports CSS selector, XPath, or coordinates)
+  ```json
+  {"click": {"selector": "button.submit"}}
+  {"click": {"xpath": "//button[contains(text(), 'Submit')]"}}
+  {"click": {"coordinates": {"x": 100, "y": 200}}}
+  ```
+
+- **`type`**: Fill an input field with text
+  ```json
+  {"type": {"selector": "input[name='email']", "value": "test@example.com"}}
+  {"type": {"xpath": "//input[@type='email']", "value": "test@example.com"}}
+  ```
+
+- **`wait_for`**: Wait for an element to appear
+  ```json
+  {"wait_for": {"selector": "div.loading"}}
+  {"wait_for": {"xpath": "//div[@class='content']"}}
+  ```
+
+- **`done`**: Mark task as complete
+  ```json
+  {"done": {}}
+  ```
 
 ## 🔄 How It Works
 
@@ -203,12 +245,15 @@ The system automatically detects and prevents repeating the same step:
 
 ## 📝 Notes
 
-- Screenshots are saved to `dataset/{task_name}/` (gitignored)
-- Browser runs in visible mode by default (`headless=False`)
-- Maximum steps default: 20 (configurable in `run_reactive()`)
-- System validates selectors exist and are visible before clicking
-- OpenAI analyzes DOM structure (first 2000 chars) to generate precise selectors
-- Supports CSS selectors, XPath, and coordinates for maximum flexibility
+- **Screenshots**: Saved to `dataset/{task_name}/` (gitignored) with sequential numbering (00.png, 01.png, ...)
+- **Browser Mode**: Runs in visible mode by default (`headless=False`) - set `headless=True` for background execution
+- **Step Limits**: Maximum steps default: 20 (configurable in `run_reactive()`)
+- **Selector Validation**: System validates selectors exist and are visible before clicking/typing
+- **DOM Analysis**: OpenAI analyzes DOM structure (first 2000 chars) to generate precise selectors
+- **Selector Types**: Supports CSS selectors, XPath, and coordinates for maximum flexibility
+- **Form Handling**: Automatically fills forms with appropriate test values (emails, names, messages)
+- **Error Recovery**: Captures screenshots even on errors for debugging
+- **Loop Prevention**: Automatically detects and prevents infinite loops from repeated steps
 
 ## 🔧 Development
 
