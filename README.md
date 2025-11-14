@@ -221,12 +221,26 @@ Each step is planned reactively based on DOM analysis. OpenAI generates precise 
 
 ## 🛠️ Troubleshooting
 
-### OpenAI Quota Errors
+### OpenAI Rate Limit & Quota Errors
 
-If you see `insufficient_quota` errors:
-1. Check billing: https://platform.openai.com/account/billing
-2. Add payment method or credits
-3. System uses `gpt-4o-mini` by default (cheapest option)
+**⚠️ IMPORTANT: Rate limits ≠ Quota limits!**
+
+**Rate Limits** (requests per minute):
+- Free tier accounts: ~3 requests/minute (even with credits!)
+- Paid plans: Much higher limits (e.g., 500 requests/minute)
+- **Solution**: Wait 1-2 minutes and try again, or upgrade to a paid plan
+
+**Quota Limits** (spending limit):
+- If you see `insufficient_quota` errors:
+  1. Check billing: https://platform.openai.com/account/billing
+  2. Add payment method or credits
+  3. System uses `gpt-4o-mini` by default (cheapest option)
+
+**Why you might hit rate limits even with credits:**
+- Free tier accounts have strict per-minute request limits
+- Even if you have $5 credit, you're still limited to ~3 requests/minute
+- The system automatically retries with exponential backoff (10s, 20s, 40s)
+- Consider reducing `max_steps` to make fewer API calls
 
 ### Selector Not Found Errors
 

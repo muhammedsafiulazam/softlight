@@ -186,14 +186,29 @@ What is the NEXT single action to take? Provide a PRECISE selector (CSS or XPath
                     f"Original error: {error_message}"
                 ) from e
             else:
-                # Rate limit hit - retry with exponential backoff
+                # Rate limit hit - this is different from quota!
+                # Free tier accounts have strict per-minute limits (e.g., 3 requests/min for gpt-4o-mini)
+                # Even with credits, you can hit rate limits if making too many requests too quickly
                 if attempt < max_retries - 1:
-                    wait_time = (2 ** attempt) * 2  # Exponential backoff: 2s, 4s, 8s
-                    print(f"[PLANNER] Rate limit hit. Retrying in {wait_time} seconds... (attempt {attempt + 1}/{max_retries})")
+                    # Longer wait times for rate limits (free tier needs more time)
+                    wait_time = (2 ** attempt) * 10  # Exponential backoff: 10s, 20s, 40s
+                    print(f"[PLANNER] ⚠️  Rate limit hit (requests per minute exceeded).")
+                    print(f"[PLANNER] Waiting {wait_time} seconds before retry (attempt {attempt + 1}/{max_retries})...")
+                    print(f"[PLANNER] 💡 Tip: Free tier accounts have strict rate limits. Consider:")
+                    print(f"[PLANNER]    - Waiting longer between requests")
+                    print(f"[PLANNER]    - Upgrading to a paid plan for higher limits")
+                    print(f"[PLANNER]    - Using fewer steps (reduce max_steps)")
                     time.sleep(wait_time)
                 else:
                     raise RateLimitError(
-                        f"Rate limit exceeded after {max_retries} attempts. Please wait and try again later.\n"
+                        f"Rate limit exceeded after {max_retries} attempts.\n\n"
+                        "⚠️  IMPORTANT: Rate limits are different from quota limits!\n"
+                        "Even with credits, free tier accounts have strict per-minute request limits.\n\n"
+                        "Solutions:\n"
+                        "1. Wait 1-2 minutes and try again (rate limits reset per minute)\n"
+                        "2. Upgrade to a paid plan for higher rate limits: https://platform.openai.com/account/billing\n"
+                        "3. Reduce max_steps to make fewer API calls\n"
+                        "4. Use tests/test.py for testing without LLM calls\n\n"
                         f"Original error: {error_message}"
                     ) from e
                     

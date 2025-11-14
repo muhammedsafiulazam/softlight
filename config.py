@@ -24,7 +24,13 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 # - gpt-4-turbo: More expensive, higher quality
 # - gpt-4: Most expensive
 #
+# Rate Limits (Free Tier):
+# - gpt-4o-mini: ~3 requests per minute
+# - gpt-4o: ~3 requests per minute
+# - Paid plans have much higher limits (e.g., 500 requests/min)
+#
 # If you're hitting quota limits, try switching to gpt-4o-mini
+# If you're hitting rate limits, wait between requests or upgrade to paid plan
 MODEL = "gpt-4o-mini"  # Changed to cheaper model to avoid quota issues
 
 # Validate that API key is set
